@@ -1,0 +1,25 @@
+sudo: true
+
+services:
+  - docker
+
+before_script:
+  - sudo apt-get --yes --no-install-recommends install binfmt-support qemu-user-static
+  - echo ':arm:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x28\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/bin/qemu-arm-static:' | sudo tee -a /proc/sys/fs/binfmt_misc/register
+
+jobs:
+  include:
+    - stage: build docker image
+      script:
+      - docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
+      - docker build -f Dockerfile.armhf -t influx4mqtt:armhf .
+      - docker images
+      - export TAG=`if [ "$TRAVIS_BRANCH" == "master" ]; then echo ""; else echo -$TRAVIS_BRANCH ; fi`
+      - docker tag influx4mqtt:armhf mqttsmarthome/influx4mqtt:armhf$TAG
+    - stage: test docker image
+      script:
+        - docker run -d mqttsmarthome/influx4mqtt:armhf$TAG
+        - docker ps | grep armhf
+after_success:
+    - docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
+    - docker push mqttsmarthome/influx4mqtt:armhf$TAG
