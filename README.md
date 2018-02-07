@@ -38,7 +38,7 @@ Options:
   -k, --insecure     allow ssl connections with invalid certs          [boolean]
   --buf-length       maximum number of buffered messages         [default: 1000]
   --buf-interval     maximum age of buffered messages in seconds   [default: 30]
-  --replace-sys      replace $SYS/ by           [default: "$SYS/BastisMacBook/"]
+  --replace-sys      replace $SYS/ by              [default: "$SYS/<hostname>/"]
   -h, --help         Show help                                         [boolean]
   --version          Show version number                               [boolean]
   -s, --subscribe    topics to subscribe to (may be repeated)         [required]
