@@ -1,22 +1,26 @@
 {
   "name": "influx4mqtt",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Insert incoming MQTT values into InfluxDB. Follows mqtt-smarthome architecture.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "camo-purge ; xo"
   },
-  "author": "Sebastian 'hobbyquaker' Raff <hq@ccu.io>",
+  "author": "Sebastian 'hobbyquaker' Raff <hobbyquaker@gmail.com>",
   "license": "MIT",
   "dependencies": {
-    "influx": "git://github.com/hobbyquaker/node-influx",
-    "mqtt": "^1.3.3",
-    "yargs": "^3.14.0"
+    "mqtt": "^2.15.1",
+    "request": "^2.83.0",
+    "yalm": "^4.1.0",
+    "yargs": "^11.0.0"
   },
   "bin": {
     "influx4mqtt": "./index.js"
   },
   "preferGlobal": true,
+  "engines": {
+    "node": ">=6.0.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/hobbyquaker/influx4mqtt"
@@ -30,5 +34,12 @@
     "grafana",
     "time",
     "series"
-  ]
+  ],
+  "devDependencies": {
+    "camo-purge": "latest",
+    "xo": "latest"
+  },
+  "xo": {
+    "space": 4
+  }
 }

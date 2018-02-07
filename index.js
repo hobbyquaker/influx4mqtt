@@ -1,131 +1,122 @@
 #!/usr/bin/env node
-var pkg =   require('./package.json');
-var config = require('yargs')
-    .usage(pkg.name + ' ' + pkg.version + '\n' + pkg.description + '\n\nUsage: $0 [options]')
-    .describe('v', 'possible values: "error", "warn", "info", "debug"')
-    .describe('n', 'instance name. used as mqtt client id and as prefix for connection-state topic')
-    .describe('u', 'mqtt broker url. See https://github.com/mqttjs/MQTT.js#connect-using-a-url')
-    .describe('h', 'show help')
-    .alias({
-        'c': 'config',
-        'h': 'help',
-        'n': 'name',
-        'u': 'url',
-        'v': 'verbosity',
-        'i': 'influx-host',
-        'p': 'influx-port',
-        'd': 'influx-db'
 
-    })
-    .default({
-        'u': 'mqtt://127.0.0.1',
-        'n': 'influx',
-        'v': 'info',
-        'influx': false,
-        'influx-host': '127.0.0.1',
-        'influx-port': 8086,
-        'influx-db': 'mqtt'
-    })
-    .config('config')
-    .version(pkg.name + ' ' + pkg.version + '\n', 'version')
-    .help('help')
-    .argv;
+const Mqtt = require('mqtt');
+const request = require('request');
+const log = require('yalm');
+const pkg = require('./package.json');
+const config = require('./config.js');
 
-console.log('mqtt connecting', config.url);
-var mqtt = require('mqtt').connect(config.url, {will: {topic: config.name + '/connected', payload: '0'}});
-mqtt.publish(config.name + '/connected', '2');
+process.title = pkg.name;
 
-var subscriptions = [ // Todo command line param
-    '+/status/#',
-    '+/connected'
-];
+log.setLevel(config.verbosity);
 
-console.log('connecting InfluxDB', config['influx-host']);
-var influx = require('influx')({
-    host: config['influx-host'] || '127.0.0.1',
-    port: config['influx-port'] || 8086, // optional, default 8086
-    protocol: 'http', // optional, default 'http' // todo command line param
-    //username: 'dbuser', // todo command line param
-    //password: 'f4ncyp4ass', // todo command line param
-    database: config['influx-db'] || 'mqtt'
+log.info(pkg.name + ' ' + pkg.version + ' starting');
+
+log.info('mqtt connecting', config.url);
+const mqtt = Mqtt.connect(config.url, {
+    will: {topic: config.name + '/connected', payload: '0', retain: true},
+    rejectUnauthorized: !config.insecure
 });
 
-var buffer = {};
-var bufferCount = 0;
+if (typeof config.subscribe === 'string') {
+    config.subscribe = [config.subscribe];
+}
 
-var connected;
-mqtt.on('connect', function () {
+let buffer = [];
+
+let connected;
+mqtt.on('connect', () => {
+    mqtt.publish(config.name + '/connected', '2', {retain: true});
     connected = true;
-    console.log('mqtt connected ' + config.url);
+    log.info('mqtt connected ' + config.url);
 
-    subscriptions.forEach(function (subs) {
-        console.log('mqtt subscribe ' + subs);
-        mqtt.subscribe(subs);
+    config.subscribe.forEach(topic => {
+        log.info('mqtt subscribe ' + topic);
+        mqtt.subscribe(topic);
     });
 });
 
-
-mqtt.on('close', function () {
+mqtt.on('close', () => {
     if (connected) {
         connected = false;
-        console.log('mqtt closed ' + config.url);
+        log.info('mqtt closed ' + config.url);
     }
 });
 
-mqtt.on('error', function () {
-    console.error('mqtt error ' + config.url);
+mqtt.on('error', err => {
+    log.error('mqtt', err.message);
 });
 
+mqtt.on('message', (topic, payload, msg) => {
+    if (msg.retain) {
+        return;
+    }
 
-mqtt.on('message', function (topic, payload, msg) {
-
-    if (msg.retain) return;
-
-    var timestamp = (new Date()).getTime();
+    let timestamp = (new Date()).getTime();
 
     payload = payload.toString();
 
-    var seriesName = topic.replace(/^([^\/]+)\/status\/(.+)/, '$1//$2');
+    const seriesName = topic.replace(/^([^/]+)\/status\/(.+)/, '$1//$2').replace(/^\$SYS\//, config.replaceSys);
 
-    var value;
+    let value;
 
-    try {
-        var tmp = JSON.parse(payload);
-        value = tmp.val;
-        timestamp = tmp.ts || timestamp;
-    } catch (e) {
+    if (payload.indexOf('{') === -1) {
         value = payload;
+    } else {
+        try {
+            const tmp = JSON.parse(payload);
+            value = tmp.val;
+            timestamp = tmp.ts || timestamp;
+        } catch (err) {
+            value = payload;
+        }
     }
-    var valueFloat = parseFloat(value);
+
+    log.debug('<', topic, typeof value, value, payload);
+
+    const valueFloat = parseFloat(value);
 
     if (value === true || value === 'true') {
         value = '1.0';
     } else if (value === false || value === 'false') {
         value = '0.0';
     } else if (isNaN(valueFloat)) {
-        return; // FIXME do we need strings? Creating a field as string leads to errors when trying to write float on it. Can we expect topics to be of the same type always?
-        value = '"' + value + '"';
+        return;
     } else {
-        value = '' + valueFloat;
-        if (!value.match(/\./)) value = value + '.0';
+        value = String(valueFloat);
+        if (!value.match(/\./)) {
+            value += '.0';
+        }
     }
 
-    //console.log(seriesName, value, timestamp, tmp.ts);
-    if (!buffer[seriesName]) buffer[seriesName] = [];
-    buffer[seriesName].push([{value: value, time: timestamp}]);
-    bufferCount += 1;
-    if (bufferCount > 1000) write(); // todo command line param
-
+    log.debug('>', seriesName, value, timestamp);
+    buffer.push(seriesName.replace(/ /g, '\\ ').replace(/,/g, '\\,') + ' value=' + value + ' ' + (timestamp * 1000000));
+    if (buffer.length > config.bufLength) {
+        write();
+    }
 });
 
 function write() {
-    if (!bufferCount) return;
-    //console.log('write', bufferCount);
-    influx.writeSeries(buffer, {}, function (err, res) {
-        if (err) console.error('error', err);
+    if (buffer.length === 0) {
+        return;
+    }
+
+    const body = buffer.join('\n');
+    buffer = [];
+
+    request.post({
+        url: 'http://' + config.influxHost + ':' + config.influxPort + '/write',
+        qs: {db: config.influxDb},
+        body
+    }, (err, res, resBody) => {
+        if (err) {
+            log.error(err.message);
+        } else if (res.statusCode === 204) {
+            log.debug('wrote ' + body.length + ' points');
+        } else {
+            log.error(res.statusCode, resBody);
+        }
     });
-    buffer = {};
-    bufferCount = 0;
 }
 
-setInterval(write, 30000); // todo command line param
+setInterval(write, config.bufInterval * 1000);
