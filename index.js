@@ -76,9 +76,9 @@ mqtt.on('message', (topic, payload, msg) => {
 
     const valueFloat = parseFloat(value);
 
-    if (value === true || value === 'true') {
+    if (value === true || value === 'true' || value === 'ON') {
         value = '1.0';
-    } else if (value === false || value === 'false') {
+    } else if (value === false || value === 'false' || value === 'OFF') {
         value = '0.0';
     } else if (isNaN(valueFloat)) {
         return;
