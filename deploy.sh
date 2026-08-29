@@ -20,7 +20,7 @@ set -euo pipefail
 # mqtt-interfaces-core or cul) are packed and shipped too; registry versions need nothing extra.
 #
 # The deploy does not create a service; install one once on the target with
-#   sudo influx4mqtt --install -n govee -u mqtt://broker
+#   sudo influx4mqtt --install -n influx -u mqtt://broker
 
 PKG=influx4mqtt
 REMOTE_HOST="${1:-mqtt-ifaces}"
@@ -124,7 +124,7 @@ if [[ -n "$SERVICE" ]]; then
   # shellcheck disable=SC2086
   sudo systemctl restart $SERVICE
 else
-  echo "No $PKG service found to restart (install one with: sudo $PKG --install -n govee -u mqtt://broker)"
+  echo "No $PKG service found to restart (install one with: sudo $PKG --install -n influx -u mqtt://broker)"
 fi
 sudo rm -f "$REMOTE_TGZ"
 EOF
