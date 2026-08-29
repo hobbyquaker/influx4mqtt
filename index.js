@@ -1,122 +1,87 @@
 #!/usr/bin/env node
 
-const Mqtt = require('mqtt');
-const request = require('request');
-const log = require('yalm');
-const pkg = require('./package.json');
-const config = require('./config.js');
+/**
+ * influx4mqtt — record MQTT values in InfluxDB, on mqtt-interfaces-core.
+ *
+ * A *sink*: unlike a device adapter it has no device of its own, its subject is what every other
+ * adapter publishes. The core's `listen` gives it the subscriptions (absolute topics, not under
+ * `<name>/`); lib/line.js turns a message into a point and lib/influx.js writes them in batches.
+ *
+ * `<name>/connected` reports 2 while InfluxDB is accepting writes and 1 while it is not, so a
+ * database that is down is visible on the broker rather than only in the log.
+ */
 
-process.title = pkg.name;
+import {createAdapter} from 'mqtt-interfaces-core';
+import config from './config.js';
+import pkg from './package.json' with {type: 'json'};
+import {handle as handleInstall} from './lib/install.js';
+import {seriesName, point} from './lib/line.js';
+import {createWriter} from './lib/influx.js';
 
-log.setLevel(config.verbosity);
+handleInstall(config); // --install / --uninstall never reach the rest
 
-log.info(pkg.name + ' ' + pkg.version + ' starting');
+let writer;
+let recorded = 0;
+let skipped = 0;
 
-log.info('mqtt connecting', config.url);
-const mqtt = Mqtt.connect(config.url, {
-    will: {topic: config.name + '/connected', payload: '0', retain: true},
-    rejectUnauthorized: !config.insecure
-});
-
-if (typeof config.subscribe === 'string') {
-    config.subscribe = [config.subscribe];
-}
-
-let buffer = [];
-
-let connected;
-mqtt.on('connect', () => {
-    mqtt.publish(config.name + '/connected', '2', {retain: true});
-    connected = true;
-    log.info('mqtt connected ' + config.url);
-
-    config.subscribe.forEach(topic => {
-        log.info('mqtt subscribe ' + topic);
-        mqtt.subscribe(topic);
-    });
-});
-
-mqtt.on('close', () => {
-    if (connected) {
-        connected = false;
-        log.info('mqtt closed ' + config.url);
-    }
-});
-
-mqtt.on('error', err => {
-    log.error('mqtt', err.message);
-});
-
-mqtt.on('message', (topic, payload, msg) => {
-    if (msg.retain) {
+/**
+ * One message -> at most one point.
+ *
+ * Retained messages are ignored: on every (re)connect the broker replays the retained value of
+ * every matching topic, and recording those would put a burst of duplicates at the reconnect time
+ * rather than at the time the value was actually measured.
+ */
+function record(topic, value, raw, packet) {
+    if (packet.retain) {
         return;
     }
-
-    let timestamp = (new Date()).getTime();
-
-    payload = payload.toString();
-
-    const seriesName = topic.replace(/^([^/]+)\/status\/(.+)/, '$1//$2').replace(/^\$SYS\//, config.replaceSys);
-
-    let value;
-
-    if (payload.indexOf('{') === -1) {
-        value = payload;
-    } else {
+    // {val, ts, lc} payloads carry the device's own time; parsePayload gave us the value, the
+    // timestamp has to come out of the raw payload
+    let timestamp = Date.now();
+    if (raw.includes('{')) {
         try {
-            const tmp = JSON.parse(payload);
-            value = tmp.val;
-            timestamp = tmp.ts || timestamp;
-        } catch (err) {
-            value = payload;
+            const json = JSON.parse(raw);
+            if (json && typeof json === 'object' && Number(json.ts) > 0) {
+                timestamp = Number(json.ts);
+            }
+        } catch {
+            // not JSON after all; our clock it is
         }
     }
-
-    log.debug('<', topic, typeof value, value, payload);
-
-    const valueFloat = parseFloat(value);
-
-    if (value === true || value === 'true' || value === 'ON') {
-        value = '1.0';
-    } else if (value === false || value === 'false' || value === 'OFF') {
-        value = '0.0';
-    } else if (isNaN(valueFloat)) {
-        return;
-    } else {
-        value = String(valueFloat);
-        if (!value.match(/\./)) {
-            value += '.0';
-        }
-    }
-
-    log.debug('>', seriesName, value, timestamp);
-    buffer.push(seriesName.replace(/ /g, '\\ ').replace(/,/g, '\\,') + ' value=' + value + ' ' + (timestamp * 1000000));
-    if (buffer.length > config.bufLength) {
-        write();
-    }
-});
-
-function write() {
-    if (buffer.length === 0) {
+    const series = seriesName(topic, {shortenStatus: config.shortenStatus, replaceSys: config.replaceSys});
+    const line = point(series, value, timestamp);
+    if (!line) {
+        skipped++; // text, or a payload that is not a number - not a time series
         return;
     }
-
-    const body = buffer.join('\n');
-    buffer = [];
-
-    request.post({
-        url: 'http://' + config.influxHost + ':' + config.influxPort + '/write',
-        qs: {db: config.influxDb},
-        body
-    }, (err, res, resBody) => {
-        if (err) {
-            log.error(err.message);
-        } else if (res.statusCode === 204) {
-            log.debug('wrote ' + body.length + ' points');
-        } else {
-            log.error(res.statusCode, resBody);
-        }
-    });
+    recorded++;
+    writer.add(line);
 }
 
-setInterval(write, config.bufInterval * 1000);
+const adapter = createAdapter({
+    pkg,
+    config,
+    deviceLabel: 'influx',
+    info: () => ({
+        influx: writer ? writer.url : undefined,
+        api: config.influxVersion,
+        db: config.influxDb,
+        subscribe: config.subscribe,
+        buffered: writer ? writer.size : 0,
+        recorded,
+        skipped,
+    }),
+    // a sink: the topics are the user's, anywhere on the broker, not under <name>/
+    listen: Object.fromEntries(config.subscribe.map((topic) => [topic, record])),
+    onShutdown: () => writer.stop(),
+});
+
+writer = createWriter(config, {
+    log: adapter.log,
+    // <name>/connected 2 while influx accepts writes, 1 while it does not
+    onState: (up) => adapter.setDeviceConnected(up),
+});
+
+adapter.log.info(`influxdb api ${config.influxVersion} at ${writer.url}`);
+writer.start();
+adapter.start();

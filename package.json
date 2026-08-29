@@ -1,45 +1,64 @@
 {
   "name": "influx4mqtt",
-  "version": "1.0.0",
-  "description": "Insert incoming MQTT values into InfluxDB. Follows mqtt-smarthome architecture.",
+  "version": "2.0.0",
+  "description": "Record MQTT values in InfluxDB. Follows the mqtt-smarthome architecture.",
+  "type": "module",
   "main": "index.js",
-  "scripts": {
-    "test": "camo-purge ; xo"
-  },
-  "author": "Sebastian 'hobbyquaker' Raff <hobbyquaker@gmail.com>",
-  "license": "MIT",
-  "dependencies": {
-    "mqtt": "^2.15.1",
-    "request": "^2.83.0",
-    "yalm": "^4.1.0",
-    "yargs": "^11.0.0"
-  },
   "bin": {
-    "influx4mqtt": "./index.js"
+    "influx4mqtt": "index.js"
   },
   "preferGlobal": true,
+  "files": [
+    "index.js",
+    "config.js",
+    "lib/"
+  ],
   "engines": {
-    "node": ">=6.0.0"
+    "node": "^20.19 || ^22.12 || >=24"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write . && eslint --fix .",
+    "test": "node --test",
+    "deploy": "bash deploy.sh"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/hobbyquaker/influx4mqtt"
+    "url": "git+https://github.com/hobbyquaker/influx4mqtt.git"
   },
+  "homepage": "https://github.com/hobbyquaker/influx4mqtt",
+  "bugs": {
+    "url": "https://github.com/hobbyquaker/influx4mqtt/issues"
+  },
+  "author": "Sebastian Raff <hobbyquaker@gmail.com> (https://github.com/hobbyquaker)",
+  "license": "MIT",
   "keywords": [
     "mqtt",
-    "smarthome",
-    "history",
+    "mqtt-smarthome",
+    "home-automation",
     "influxdb",
-    "charts",
+    "influx",
     "grafana",
-    "time",
-    "series"
+    "time series",
+    "history"
   ],
-  "devDependencies": {
-    "camo-purge": "latest",
-    "xo": "latest"
+  "mqttInterfaces": {
+    "spec": "2.0",
+    "envPrefix": "INFLUX4MQTT",
+    "needs": [
+      "network"
+    ],
+    "serviceExtra": []
   },
-  "xo": {
-    "space": 4
+  "dependencies": {
+    "mqtt-interfaces-core": "^0.13.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9",
+    "eslint": "^9",
+    "eslint-config-prettier": "^10",
+    "globals": "^16",
+    "prettier": "^3"
   }
 }
