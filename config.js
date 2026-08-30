@@ -98,6 +98,10 @@ export default parseConfig({
     pkg,
     options: OPTIONS,
     defaults: {name: 'influx'},
+    // a sink: it forwards messages to InfluxDB and publishes no state of its own, so the shared
+    // options for status payloads and Home Assistant entities would configure nothing
+    publishesStatus: false,
+    publishesDiscovery: false,
     check,
     examples: [
         ['$0 -u mqtt://broker', 'record every mqtt-smarthome status topic'],

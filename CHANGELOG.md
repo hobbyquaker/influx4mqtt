@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.1
+
+### Fixed
+
+- `--json-payloads`, `--ha-discovery` and `--ha-prefix` are gone. They are shared options every
+  adapter got from the core, and all three configured nothing here: this is a sink, so it never
+  publishes a status item and announces no Home Assistant entities — it forwards messages to
+  InfluxDB. Offered anyway, they appeared in `--help` and in a config UI's form, where they
+  invited configuring behaviour that does not exist. Needs mqtt-interfaces-core 0.15.0.
+
 ## 2.0.0
 
 A rewrite on [mqtt-interfaces-core](https://github.com/hobbyquaker/mqtt-interfaces-core). The
